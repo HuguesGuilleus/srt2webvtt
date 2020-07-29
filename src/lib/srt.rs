@@ -52,7 +52,7 @@ impl<R: std::io::Read> Iterator for Srt<R> {
             };
         }
 
-        if lines.len() == 0 {
+        if lines.len() < 3 {
             return self.next();
         }
 
