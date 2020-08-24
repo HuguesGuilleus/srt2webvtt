@@ -30,6 +30,6 @@ fn write_time<W: io::Write>(w: &mut W, d: Duration) -> io::Result<()> {
         s / 3600,
         (s / 60) % 60,
         s % 60,
-        d.as_millis()
+        d.subsec_millis()
     )
 }
