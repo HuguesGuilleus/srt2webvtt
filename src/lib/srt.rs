@@ -12,6 +12,7 @@ pub struct Srt<R: std::io::Read> {
     input: io::Lines<io::BufReader<R>>,
     end: bool,
     pub error: Option<io::Error>,
+    line: usize, // number of readed lines
 }
 impl<R: std::io::Read> Srt<R> {
     pub fn parse(input: R) -> Srt<R> {
@@ -19,6 +20,7 @@ impl<R: std::io::Read> Srt<R> {
             input: BufReader::new(input).lines(),
             error: None,
             end: false,
+            line: 0,
         }
     }
 }
@@ -31,6 +33,7 @@ impl<R: std::io::Read> Iterator for Srt<R> {
 
         let mut lines: Vec<String> = Vec::new();
         loop {
+            self.line += 1;
             match self.input.next() {
                 Some(l) => match l {
                     Ok(s) => {
@@ -52,13 +55,15 @@ impl<R: std::io::Read> Iterator for Srt<R> {
             };
         }
 
-        if lines.len() < 3 {
+        let l = lines.len();
+        if l < 3 {
             return self.next();
         }
 
         match parse_one(lines) {
             Ok(c) => Some(c),
-            Err(e) => {
+            Err(mut e) => {
+                e.push_str(&format!(" (line {} ~> {})", self.line - l, self.line));
                 self.error = Some(io::Error::new(io::ErrorKind::InvalidData, e));
                 None
             }

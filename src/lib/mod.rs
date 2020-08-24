@@ -46,9 +46,8 @@ pub fn srt2vtt<R: io::Read, W: io::Write>(output: &mut W, input: R) -> io::Resul
         return Err(e);
     }
 
-
     match parser.error {
-        Some(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+        Some(e) => Err(e),
         None => Ok(()),
     }
 }
