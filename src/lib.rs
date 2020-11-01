@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD
 // license that can be found in the LICENSE file.
 
-// use std::iter::Iterator;
+mod webvtt;
 use std::time::Duration;
 
 /// One cue.
@@ -13,6 +13,7 @@ pub struct Cue {
     pub text: Vec<String>,
 }
 impl Cue {
+    /// Create a new cue.
     pub fn new(begin: Duration, end: Duration, t: Vec<String>) -> Cue {
         if begin > end {
             Cue {
@@ -38,7 +39,7 @@ pub enum Delta {
     None,
 }
 impl Delta {
-    /// Return a function to apply delta time to a Cue.
+    /// Apply the delta time to the cue.
     fn apply(&self, c: &mut Cue) {
         match self {
             Delta::Add(d) => {
