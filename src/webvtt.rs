@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD
 // license that can be found in the LICENSE file.
 
-use super::Cue;
+use super::{Cue, CueParser};
 use std::io;
 use std::io::{BufRead, BufReader, ErrorKind, Lines, Read, Write};
 use std::iter::Enumerate;
 use std::time::Duration;
 
-struct Parser<R: Read> {
+pub struct Parser<R: Read> {
     lines: Enumerate<Lines<BufReader<R>>>,
     error: Option<io::Error>,
     id: Option<String>,
@@ -77,8 +77,9 @@ impl<R: Read> Parser<R> {
 
         Ok(Cue::new(id, begin, end, lines))
     }
-    /// Move and return the error from the parser.
-    pub fn get_err(&mut self) -> Option<io::Error> {
+}
+impl<R: Read> CueParser for Parser<R> {
+    fn get_err(&mut self) -> Option<io::Error> {
         std::mem::replace(&mut self.error, None)
     }
 }
