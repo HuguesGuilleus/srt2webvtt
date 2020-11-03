@@ -8,7 +8,7 @@ use std::time::Duration;
 
 mod webvtt;
 pub use webvtt::out as webvtt_out;
-pub use webvtt::WebVTTParser as WebVTTParser;
+pub use webvtt::WebVTTParser;
 
 /// One cue.
 #[derive(Clone, Debug, PartialEq)]
@@ -196,7 +196,7 @@ impl<R: Read> LineNb<R> {
     }
     /// Return the current line number.
     pub fn current(&self) -> usize {
-        self.nb
+        self.nb - 1
     }
 }
 impl<R: Read> Iterator for LineNb<R> {

@@ -9,8 +9,7 @@ use std::time::Duration;
 
 pub struct WebVTTParser<R: Read> {
     lines: LineNb<R>,
-    error: Option<io::Error>,
-    id: Option<String>,
+    end: bool,
 }
 impl<R: Read> WebVTTParser<R> {
     pub fn parse(r: R) -> io::Result<Self> {
@@ -33,32 +32,76 @@ impl<R: Read> WebVTTParser<R> {
 
         Ok(Self {
             lines: lines,
-            id: None,
-            error: None,
+            end: false,
         })
     }
-    /// Read lines while the line is not empty and no error come.
-    fn next_while_empty(&mut self) {
-        loop {
-            match self.lines.next() {
-                None => return,
-                Some(Err(e)) => {
-                    self.error = Some(e);
-                    return;
+    /// Try to parse the next cue. If it's the end of the file, return `Ok(None)`.
+    fn next_cue(&mut self, id: Option<String>) -> io::Result<Option<Cue>> {
+        let line: String = match self.lines.next() {
+            None => {
+                return Ok(None);
+            }
+            Some(Err(e)) => {
+                return Err(e);
+            }
+            Some(Ok(l)) => l,
+        };
+
+        match id {
+            Some(id) => {
+                if line.contains("-->") {
+                    Ok(Some(self.parse_cue(&line, Some(id))?))
+                } else {
+                    Err(io::Error::new(
+                        ErrorKind::InvalidData,
+                        format!(
+                            "A alone text line {:?} (line: {})",
+                            id,
+                            self.lines.current()
+                        ),
+                    ))
                 }
-                Some(Ok(l)) if l.len() == 0 => return,
-                _ => {}
+            }
+            _ => {
+                if line.len() == 0 {
+                    self.next_cue(None)
+                } else if line.starts_with("REGION")
+                    || line.starts_with("NOTE")
+                    || line.starts_with("STYLE")
+                {
+                    self.next_while_empty()?;
+                    self.next_cue(None)
+                } else if !line.contains("-->") {
+                    self.next_cue(Some(line))
+                } else {
+                    Ok(Some(self.parse_cue(&line, None)?))
+                }
             }
         }
     }
-    fn parse_cue(&mut self, first: &str, line: usize) -> io::Result<Cue> {
-        let (size, begin) = parse_duration(first, line)?;
+
+    /// Read lines while the line is not empty and no error come.
+    fn next_while_empty(&mut self) -> io::Result<()> {
+        loop {
+            match self.lines.next() {
+                None => return Ok(()),
+                Some(l) => {
+                    if l?.len() == 0 {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+    /// Parse begin and end time code from first to return a Cue.
+    fn parse_cue(&mut self, first: &str, id: Option<String>) -> io::Result<Cue> {
+        let (size, begin) = parse_duration(first, self.lines.current())?;
         let (_, end) = parse_duration(
             first[size..]
                 .trim_start()
                 .trim_start_matches("-->")
                 .trim_start(),
-            line,
+            self.lines.current(),
         )?;
 
         let mut lines = vec![];
@@ -71,7 +114,7 @@ impl<R: Read> WebVTTParser<R> {
             }
         }
 
-        let id = match std::mem::replace(&mut self.id, None) {
+        let id = match id {
             Some(id) if id.chars().any(|c| !c.is_numeric()) => Some(id),
             _ => None,
         };
@@ -82,61 +125,20 @@ impl<R: Read> WebVTTParser<R> {
 impl<R: Read> Iterator for WebVTTParser<R> {
     type Item = io::Result<Cue>;
     fn next(&mut self) -> Option<io::Result<Cue>> {
-        if self.error.is_some() {
+        if self.end {
             return None;
         }
 
-        match &self.id {
-            Some(id) => match self.lines.next() {
-                Some(Ok(l)) if l.contains("-->") => {
-                    match self.parse_cue(&l, self.lines.current()) {
-                        Ok(c) => Some(Ok(c)),
-                        Err(e) => {
-                            self.error = Some(e);
-                            None
-                        }
-                    }
-                }
-                Some(Err(e)) => {
-                    self.error = Some(e);
-                    None
-                }
-                _ => {
-                    self.error = Some(io::Error::new(
-                        ErrorKind::InvalidData,
-                        format!("A alone text line {:?} (line: ?)", id),
-                    ));
-                    return None;
-                }
-            },
-            None => match self.lines.next() {
-                None => None,
-                Some(Err(e)) => {
-                    self.error = Some(e);
-                    None
-                }
-                Some(Ok(l)) if l.len() == 0 => self.next(),
-                Some(Ok(l))
-                    if l.starts_with("REGION")
-                        || l.starts_with("NOTE")
-                        || l.starts_with("STYLE") =>
-                {
-                    self.next_while_empty();
-                    self.next()
-                }
-                Some(Ok(l)) if l.len() == 0 => self.next(),
-                Some(Ok(l)) if !l.contains("-->") => {
-                    self.id = Some(l);
-                    self.next()
-                }
-                Some(Ok(l)) => match self.parse_cue(&l, self.lines.current()) {
-                    Ok(c) => Some(Ok(c)),
-                    Err(e) => {
-                        self.error = Some(e);
-                        None
-                    }
-                },
-            },
+        match self.next_cue(None) {
+            Ok(Some(c)) => Some(Ok(c)),
+            Ok(None) => {
+                self.end = true;
+                None
+            }
+            Err(e) => {
+                self.end = true;
+                Some(Err(e))
+            }
         }
     }
 }
