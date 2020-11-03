@@ -120,6 +120,45 @@ pub fn convert<R: Read, W: Write>(
         ),
     }
 }
+#[test]
+fn test_convert() {
+    let mut out: Vec<u8> = Vec::new();
+
+    convert(
+        "WEBVTT
+
+NOTE Hello World
+
+00:01.000 --> 00:04.000
+Never drink liquid nitrogen.
+
+identifier
+00:05.000 --> 00:09.000
+— It will perforate your stomach.
+— You could die."
+            .as_bytes(),
+        Format::WebVTT,
+        &mut out,
+        Format::WebVTT,
+        Delta::Add(Duration::new(1, 0)),
+    )
+    .unwrap();
+
+    assert_eq!(
+        std::str::from_utf8(&out).unwrap(),
+        "WEBVTT
+
+00:02.000 --> 00:05.000
+Never drink liquid nitrogen.
+
+identifier
+00:06.000 --> 00:10.000
+— It will perforate your stomach.
+— You could die.
+
+"
+    );
+}
 
 /// Apply the delta time to all input cues and save them into the output_writer.
 pub fn convert_output<I: Iterator<Item = io::Result<Cue>>, W: Write>(
@@ -132,7 +171,7 @@ pub fn convert_output<I: Iterator<Item = io::Result<Cue>>, W: Write>(
 
     let cues = (&mut input)
         .filter_map(|r| {
-            if error.is_none() {
+            if error.is_some() {
                 None
             } else {
                 match r {
