@@ -7,6 +7,7 @@ use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::time::Duration;
 
+/// A parser of a WebVTT stream.
 pub struct WebVTTParser<R: Read> {
     lines: LineNb<R>,
     end: bool,
@@ -266,7 +267,8 @@ fn test_parse_duration() {
     );
 }
 
-/// Write all Cues from the input Iterator into the write W. Return the number fo writed cue.
+/// Write all Cues from the input Iterator into the write W. Use WebVTT subtitle format.
+/// Return the number fo writed cue. 
 pub fn out<I, W>(cues: I, mut w: W) -> Result<usize, std::io::Error>
 where
     W: Write,

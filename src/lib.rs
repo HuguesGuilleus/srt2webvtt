@@ -39,7 +39,7 @@ impl Cue {
     }
 }
 
-/// A delta time to apply on a cue.
+/// A delta duration to apply on a cue's time code.
 #[derive(Clone, Debug)]
 pub enum Delta {
     Add(Duration),
@@ -90,14 +90,14 @@ fn delat_apply() {
     );
 }
 
-/// The format for input or output stream.
+/// The crate supported formats for input or output stream.
 #[derive(Debug, Copy, Clone)]
 pub enum Format {
     WebVTT,
     B,
 }
 
-/// Convert cues from input reader of a format (defined in this crate) to an other
+/// Convert cues from the input, apply delta duration and save it.
 pub fn convert<R: Read, W: Write>(
     input_reader: R,
     input_format: Format,
@@ -221,7 +221,7 @@ where
     unimplemented!()
 }
 
-// A line by line reader that count readed line.
+/// A line by line reader that count readed lines.
 struct LineNb<R: Read> {
     lines: Lines<BufReader<R>>,
     nb: usize,
