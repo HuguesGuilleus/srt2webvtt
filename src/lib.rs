@@ -3,12 +3,12 @@
 // license that can be found in the LICENSE file.
 
 use std::io;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Lines, Read, Write};
 use std::time::Duration;
 
 mod webvtt;
-pub use webvtt::out as webvttOut;
-pub use webvtt::Parser as webvttParser;
+pub use webvtt::out as webvtt_out;
+pub use webvtt::WebVTTParser as WebVTTParser;
 
 /// One cue.
 #[derive(Clone, Debug, PartialEq)]
@@ -107,7 +107,7 @@ pub fn convert<R: Read, W: Write>(
 ) -> io::Result<usize> {
     match input_format {
         Format::WebVTT => convert_output(
-            webvtt::Parser::parse(input_reader),
+            WebVTTParser::parse(input_reader)?,
             output_writer,
             output_format,
             delta,
@@ -121,30 +121,40 @@ pub fn convert<R: Read, W: Write>(
     }
 }
 
-/// Will be remove and a parser will be a Iterator of a result.
-pub trait CueParser: Iterator<Item = Cue> {
-    /// Move and return the error from the parser.
-    fn get_err(&mut self) -> Option<io::Error>;
-}
-
 /// Apply the delta time to all input cues and save them into the output_writer.
-pub fn convert_output<I: CueParser, W: Write>(
+pub fn convert_output<I: Iterator<Item = io::Result<Cue>>, W: Write>(
     mut input: I,
     output_writer: W,
     output_format: Format,
     delta: Delta,
 ) -> io::Result<usize> {
-    let delayer = (&mut input).map(|mut c| {
-        delta.apply(&mut c);
-        c
-    });
+    let mut error: Option<io::Error> = None;
+
+    let cues = (&mut input)
+        .filter_map(|r| {
+            if error.is_none() {
+                None
+            } else {
+                match r {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        error = Some(e);
+                        None
+                    }
+                }
+            }
+        })
+        .map(|mut c| {
+            delta.apply(&mut c);
+            c
+        });
 
     let nb = match output_format {
-        Format::WebVTT => webvtt::out,
+        Format::WebVTT => webvtt_out,
         Format::B => b_out,
-    }(delayer, output_writer)?;
+    }(cues, output_writer)?;
 
-    match input.get_err() {
+    match error {
         Some(e) => Err(e),
         None => Ok(nb),
     }
@@ -156,14 +166,9 @@ pub fn convert_output<I: CueParser, W: Write>(
 struct Bparser<R: Read> {
     _r: R,
 }
-impl<R: Read> CueParser for Bparser<R> {
-    fn get_err(&mut self) -> Option<io::Error> {
-        None
-    }
-}
 impl<R: Read> Iterator for Bparser<R> {
-    type Item = Cue;
-    fn next(&mut self) -> Option<Cue> {
+    type Item = io::Result<Cue>;
+    fn next(&mut self) -> Option<io::Result<Cue>> {
         unimplemented!()
     }
 }
@@ -175,4 +180,34 @@ where
     I: std::iter::Iterator<Item = Cue>,
 {
     unimplemented!()
+}
+
+// A line by line reader that count readed line.
+struct LineNb<R: Read> {
+    lines: Lines<BufReader<R>>,
+    nb: usize,
+}
+impl<R: Read> LineNb<R> {
+    pub fn new(r: R) -> Self {
+        Self {
+            lines: BufReader::new(r).lines(),
+            nb: 0,
+        }
+    }
+    /// Return the current line number.
+    pub fn current(&self) -> usize {
+        self.nb
+    }
+}
+impl<R: Read> Iterator for LineNb<R> {
+    type Item = io::Result<String>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.lines.next() {
+            Some(Ok(l)) => {
+                self.nb += 1;
+                Some(Ok(l))
+            }
+            x => x,
+        }
+    }
 }

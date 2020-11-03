@@ -2,50 +2,51 @@
 // Use of this source code is governed by a BSD
 // license that can be found in the LICENSE file.
 
-use super::{Cue, CueParser};
+use super::{Cue, LineNb};
 use std::io;
-use std::io::{BufRead, BufReader, ErrorKind, Lines, Read, Write};
-use std::iter::Enumerate;
+use std::io::{ErrorKind, Read, Write};
 use std::time::Duration;
 
-pub struct Parser<R: Read> {
-    lines: Enumerate<Lines<BufReader<R>>>,
+pub struct WebVTTParser<R: Read> {
+    lines: LineNb<R>,
     error: Option<io::Error>,
     id: Option<String>,
 }
-impl<R: Read> Parser<R> {
-    pub fn parse(r: R) -> Self {
-        let mut lines = BufReader::new(r).lines().enumerate();
+impl<R: Read> WebVTTParser<R> {
+    pub fn parse(r: R) -> io::Result<Self> {
+        let mut lines = LineNb::new(r);
 
-        Self {
-            error: match lines.next() {
-                None => Some(io::Error::new(
-                    ErrorKind::UnexpectedEof,
+        match lines.next() {
+            None => Err(io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "WebVTT file need a `WEBVTT` line header",
+            )),
+            Some(Err(e)) => Err(e),
+            Some(Ok(l)) if !l.starts_with("WEBVTT") && l.starts_with("\u{FEFF}WEBVTT") => {
+                Err(io::Error::new(
+                    ErrorKind::InvalidData,
                     "WebVTT file need a `WEBVTT` line header",
-                )),
-                Some((_, Err(e))) => Some(e),
-                Some((_, Ok(l))) if !l.starts_with("WEBVTT") && l.starts_with("\u{FEFF}WEBVTT") => {
-                    Some(io::Error::new(
-                        ErrorKind::InvalidData,
-                        "WebVTT file need a `WEBVTT` line header",
-                    ))
-                }
-                _ => None,
-            },
+                ))
+            }
+            _ => Ok(()),
+        }?;
+
+        Ok(Self {
             lines: lines,
             id: None,
-        }
+            error: None,
+        })
     }
     /// Read lines while the line is not empty and no error come.
     fn next_while_empty(&mut self) {
         loop {
             match self.lines.next() {
                 None => return,
-                Some((_, Err(e))) => {
+                Some(Err(e)) => {
                     self.error = Some(e);
                     return;
                 }
-                Some((_, Ok(l))) if l.len() == 0 => return,
+                Some(Ok(l)) if l.len() == 0 => return,
                 _ => {}
             }
         }
@@ -63,10 +64,10 @@ impl<R: Read> Parser<R> {
         let mut lines = vec![];
         loop {
             match self.lines.next() {
-                Some((_, Err(e))) => return Err(e),
+                Some(Err(e)) => return Err(e),
                 None => break,
-                Some((_, Ok(l))) if l.len() == 0 => break,
-                Some((_, Ok(l))) => lines.push(l),
+                Some(Ok(l)) if l.len() == 0 => break,
+                Some(Ok(l)) => lines.push(l),
             }
         }
 
@@ -78,28 +79,25 @@ impl<R: Read> Parser<R> {
         Ok(Cue::new(id, begin, end, lines))
     }
 }
-impl<R: Read> CueParser for Parser<R> {
-    fn get_err(&mut self) -> Option<io::Error> {
-        std::mem::replace(&mut self.error, None)
-    }
-}
-impl<R: Read> Iterator for Parser<R> {
-    type Item = Cue;
-    fn next(&mut self) -> Option<Cue> {
+impl<R: Read> Iterator for WebVTTParser<R> {
+    type Item = io::Result<Cue>;
+    fn next(&mut self) -> Option<io::Result<Cue>> {
         if self.error.is_some() {
             return None;
         }
 
         match &self.id {
             Some(id) => match self.lines.next() {
-                Some((line, Ok(l))) if l.contains("-->") => match self.parse_cue(&l, line) {
-                    Ok(c) => Some(c),
-                    Err(e) => {
-                        self.error = Some(e);
-                        None
+                Some(Ok(l)) if l.contains("-->") => {
+                    match self.parse_cue(&l, self.lines.current()) {
+                        Ok(c) => Some(Ok(c)),
+                        Err(e) => {
+                            self.error = Some(e);
+                            None
+                        }
                     }
-                },
-                Some((_, Err(e))) => {
+                }
+                Some(Err(e)) => {
                     self.error = Some(e);
                     None
                 }
@@ -113,12 +111,12 @@ impl<R: Read> Iterator for Parser<R> {
             },
             None => match self.lines.next() {
                 None => None,
-                Some((_, Err(e))) => {
+                Some(Err(e)) => {
                     self.error = Some(e);
                     None
                 }
-                Some((_, Ok(l))) if l.len() == 0 => self.next(),
-                Some((_, Ok(l)))
+                Some(Ok(l)) if l.len() == 0 => self.next(),
+                Some(Ok(l))
                     if l.starts_with("REGION")
                         || l.starts_with("NOTE")
                         || l.starts_with("STYLE") =>
@@ -126,13 +124,13 @@ impl<R: Read> Iterator for Parser<R> {
                     self.next_while_empty();
                     self.next()
                 }
-                Some((_, Ok(l))) if l.len() == 0 => self.next(),
-                Some((_, Ok(l))) if !l.contains("-->") => {
+                Some(Ok(l)) if l.len() == 0 => self.next(),
+                Some(Ok(l)) if !l.contains("-->") => {
                     self.id = Some(l);
                     self.next()
                 }
-                Some((line, Ok(l))) => match self.parse_cue(&l, line) {
-                    Ok(c) => Some(c),
+                Some(Ok(l)) => match self.parse_cue(&l, self.lines.current()) {
+                    Ok(c) => Some(Ok(c)),
                     Err(e) => {
                         self.error = Some(e);
                         None
@@ -144,7 +142,7 @@ impl<R: Read> Iterator for Parser<R> {
 }
 #[test]
 fn parser() {
-    let mut p = Parser::parse(
+    let mut p = WebVTTParser::parse(
         "WEBVTT - A good webvtt file
 
 REGION
@@ -172,21 +170,22 @@ identifier
 — It will perforate your stomach.
 — You could die."
             .as_bytes(),
-    );
+    )
+    .unwrap();
 
     assert_eq!(
-        p.next(),
-        Some(Cue::new(
+        p.next().unwrap().unwrap(),
+        Cue::new(
             None,
             Duration::new(1, 0),
             Duration::new(4, 0),
             vec![String::from("Never drink liquid nitrogen.")],
-        )),
+        )
     );
 
     assert_eq!(
-        p.next(),
-        Some(Cue::new(
+        p.next().unwrap().unwrap(),
+        Cue::new(
             Some(String::from("identifier")),
             Duration::new(5, 0),
             Duration::new(9, 0),
@@ -194,7 +193,7 @@ identifier
                 String::from("— It will perforate your stomach."),
                 String::from("— You could die."),
             ],
-        )),
+        )
     );
 }
 
@@ -283,8 +282,7 @@ where
         write_duration(&mut w, &c.end)?;
         w.write(b"\n")?;
         for l in c.text {
-            w.write(l.as_bytes())?;
-            w.write(b"\n")?;
+            write!(w, "{}\n", l)?;
         }
         w.write(b"\n")?;
         nb += 1;
