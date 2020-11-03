@@ -11,6 +11,7 @@ use std::time::Duration;
 struct Parser<R: Read> {
     lines: Enumerate<Lines<BufReader<R>>>,
     error: Option<io::Error>,
+    id: Option<String>,
 }
 impl<R: Read> Parser<R> {
     pub fn parse(r: R) -> Self {
@@ -32,6 +33,7 @@ impl<R: Read> Parser<R> {
                 _ => None,
             },
             lines: lines,
+            id: None,
         }
     }
     /// Read lines while the line is not empty and no error come.
@@ -68,7 +70,12 @@ impl<R: Read> Parser<R> {
             }
         }
 
-        Ok(Cue::new(begin, end, lines))
+        let id = match std::mem::replace(&mut self.id, None) {
+            Some(id) if id.chars().any(|c| !c.is_numeric()) => Some(id),
+            _ => None,
+        };
+
+        Ok(Cue::new(id, begin, end, lines))
     }
     /// Move and return the error from the parser.
     pub fn get_err(&mut self) -> Option<io::Error> {
@@ -82,26 +89,54 @@ impl<R: Read> Iterator for Parser<R> {
             return None;
         }
 
-        match self.lines.next() {
-            None => None,
-            Some((_, Err(e))) => {
-                self.error = Some(e);
-                None
-            }
-            Some((_, Ok(l))) if l.len() == 0 => self.next(),
-            Some((_, Ok(l)))
-                if l.starts_with("REGION") || l.starts_with("NOTE") || l.starts_with("STYLE") =>
-            {
-                self.next_while_empty();
-                self.next()
-            }
-            Some((_, Ok(l))) if !l.contains("-->") => self.next(), // ID of the cue
-            Some((line, Ok(l))) => match self.parse_cue(&l, line) {
-                Ok(c) => Some(c),
-                Err(e) => {
+        match &self.id {
+            Some(id) => match self.lines.next() {
+                Some((line, Ok(l))) if l.contains("-->") => match self.parse_cue(&l, line) {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        self.error = Some(e);
+                        None
+                    }
+                },
+                Some((_, Err(e))) => {
                     self.error = Some(e);
                     None
                 }
+                _ => {
+                    self.error = Some(io::Error::new(
+                        ErrorKind::InvalidData,
+                        format!("A alone text line {:?} (line: ?)", id),
+                    ));
+                    return None;
+                }
+            },
+            None => match self.lines.next() {
+                None => None,
+                Some((_, Err(e))) => {
+                    self.error = Some(e);
+                    None
+                }
+                Some((_, Ok(l))) if l.len() == 0 => self.next(),
+                Some((_, Ok(l)))
+                    if l.starts_with("REGION")
+                        || l.starts_with("NOTE")
+                        || l.starts_with("STYLE") =>
+                {
+                    self.next_while_empty();
+                    self.next()
+                }
+                Some((_, Ok(l))) if l.len() == 0 => self.next(),
+                Some((_, Ok(l))) if !l.contains("-->") => {
+                    self.id = Some(l);
+                    self.next()
+                }
+                Some((line, Ok(l))) => match self.parse_cue(&l, line) {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        self.error = Some(e);
+                        None
+                    }
+                },
             },
         }
     }
@@ -141,6 +176,7 @@ identifier
     assert_eq!(
         p.next(),
         Some(Cue::new(
+            None,
             Duration::new(1, 0),
             Duration::new(4, 0),
             vec![String::from("Never drink liquid nitrogen.")],
@@ -150,6 +186,7 @@ identifier
     assert_eq!(
         p.next(),
         Some(Cue::new(
+            Some(String::from("identifier")),
             Duration::new(5, 0),
             Duration::new(9, 0),
             vec![
@@ -237,6 +274,9 @@ where
 
     let mut nb = 0;
     for c in cues {
+        if let Some(id) = c.id {
+            write!(w, "{}\n", id)?;
+        }
         write_duration(&mut w, &c.begin)?;
         w.write(b" --> ")?;
         write_duration(&mut w, &c.end)?;
@@ -262,8 +302,9 @@ fn test_out() {
     assert_eq!(
         out(
             vec![
-                Cue::new(dur(0), dur(05), vec![String::from("Hello World")]),
+                Cue::new(None, dur(0), dur(05), vec![String::from("Hello World")]),
                 Cue::new(
+                    Some("Yolo".to_string()),
                     dur(5),
                     dur(10),
                     vec![
@@ -286,6 +327,7 @@ fn test_out() {
 00:00.000 --> 00:05.000
 Hello World
 
+Yolo
 00:05.000 --> 00:10.000
 J'espère que tous le monde va bien.
 On va commencer.

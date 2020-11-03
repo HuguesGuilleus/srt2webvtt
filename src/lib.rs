@@ -8,21 +8,24 @@ use std::time::Duration;
 /// One cue.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cue {
+    pub id: Option<String>,
     pub begin: Duration,
     pub end: Duration,
     pub text: Vec<String>,
 }
 impl Cue {
     /// Create a new cue.
-    pub fn new(begin: Duration, end: Duration, t: Vec<String>) -> Cue {
+    pub fn new(id: Option<String>, begin: Duration, end: Duration, t: Vec<String>) -> Cue {
         if begin > end {
             Cue {
+                id: id,
                 begin: end,
                 end: begin,
                 text: t,
             }
         } else {
             Cue {
+                id: id,
                 begin: begin,
                 end: end,
                 text: t,
@@ -56,7 +59,7 @@ impl Delta {
 }
 #[test]
 fn shift_applicator() {
-    let c = Cue::new(Duration::new(5, 10), Duration::new(6, 20), Vec::new());
+    let c = Cue::new(None, Duration::new(5, 10), Duration::new(6, 20), Vec::new());
 
     let mut cc = c.clone();
     Delta::None.apply(&mut cc);
@@ -66,13 +69,18 @@ fn shift_applicator() {
     Delta::Add(Duration::new(10, 0)).apply(&mut cc);
     assert_eq!(
         cc,
-        Cue::new(Duration::new(15, 10), Duration::new(16, 20), Vec::new())
+        Cue::new(
+            None,
+            Duration::new(15, 10),
+            Duration::new(16, 20),
+            Vec::new()
+        )
     );
 
     let mut cc = c.clone();
     Delta::Sub(Duration::new(2, 0)).apply(&mut cc);
     assert_eq!(
         cc,
-        Cue::new(Duration::new(3, 10), Duration::new(4, 20), Vec::new())
+        Cue::new(None, Duration::new(3, 10), Duration::new(4, 20), Vec::new())
     );
 }
