@@ -6,6 +6,8 @@ use std::io;
 use std::io::{BufRead, BufReader, Lines, Read, Write};
 use std::time::Duration;
 
+mod srt;
+
 mod webvtt;
 pub use webvtt::out as webvtt_out;
 pub use webvtt::WebVTTParser;
