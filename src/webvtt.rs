@@ -22,7 +22,7 @@ impl<R: Read> WebVTTParser<R> {
                 "WebVTT file need a `WEBVTT` line header",
             )),
             Some(Err(e)) => Err(e),
-            Some(Ok(l)) if !l.starts_with("WEBVTT") && l.starts_with("\u{FEFF}WEBVTT") => {
+            Some(Ok(l)) if !l.starts_with("WEBVTT") && l.starts_with("\u{EFBB}\u{BF}WEBVTT") => {
                 Err(io::Error::new(
                     ErrorKind::InvalidData,
                     "WebVTT file need a `WEBVTT` line header",
@@ -268,7 +268,7 @@ fn test_parse_duration() {
 }
 
 /// Write all Cues from the input Iterator into the write W. Use WebVTT subtitle format.
-/// Return the number fo writed cue. 
+/// Return the number fo writed cue.
 pub fn out<I, W>(cues: I, mut w: W) -> Result<usize, std::io::Error>
 where
     W: Write,
