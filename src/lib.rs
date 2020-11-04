@@ -235,7 +235,7 @@ impl<R: Read> LineNb<R> {
     }
     /// Return the current line number.
     pub fn current(&self) -> usize {
-        self.nb - 1
+        self.nb
     }
 }
 impl<R: Read> Iterator for LineNb<R> {
