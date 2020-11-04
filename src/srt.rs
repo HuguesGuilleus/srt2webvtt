@@ -7,14 +7,36 @@ use std::io;
 use std::io::ErrorKind;
 use std::time::Duration;
 
+fn parse_time(s: &str, line: usize) -> io::Result<(Duration, Duration)> {
+    let split: Vec<&str> = s.split(" --> ").take(3).collect();
+    if split.len() != 2 {
+        return err_invalid("Invalide time code syntax", s, line);
+    }
+
+    Ok((
+        parse_duration(split[0].trim_end(), line)?,
+        parse_duration(split[1].trim_start(), line)?,
+    ))
+}
+#[test]
+fn parse_time_test() {
+    fn dur(h: u64, m: u64, s: u64, ms: u32) -> Duration {
+        Duration::new(h * 3600 + m * 60 + s, ms * 1_000_000)
+    }
+    assert_eq!(
+        parse_time("x --> 17:35:29.942 --> 17:25:48.456", 0).unwrap(),
+        (dur(17, 35, 29, 942), dur(17, 25, 48, 456))
+    );
+}
+
 fn parse_duration(s: &str, line: usize) -> io::Result<Duration> {
     let split: Vec<&str> = s.split(":").take(4).collect();
-    if split.len() > 3 {
+    if split.len() != 3 {
         return err_invalid("Invalid duration syntax", s, line);
     }
 
     let second_part: Vec<&str> = split[2].split(",").take(3).collect();
-    if second_part.len() > 2 {
+    if second_part.len() != 2 {
         return err_invalid(
             "Invalid duration syntax (second and microsecond part)",
             s,
