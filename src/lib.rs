@@ -4,6 +4,7 @@
 
 use std::io;
 use std::io::{BufRead, BufReader, Lines, Read, Write};
+use std::str::FromStr;
 use std::time::Duration;
 
 mod srt;
@@ -44,7 +45,7 @@ impl Cue {
 }
 
 /// A delta duration to apply on a cue's time code.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Delta {
     Add(Duration),
     Sub(Duration),
@@ -140,12 +141,77 @@ fn delta_applicator() {
         Cue::new(None, Duration::new(3, 10), Duration::new(4, 20), Vec::new())
     );
 }
+impl FromStr for Delta {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "" || s == "0" {
+            return Ok(Delta::None);
+        }
+
+        let sign: char = s.chars().next().unwrap();
+        let s = &s[1..];
+
+        let begin = s.find(':');
+        let min: f64 = match begin {
+            Some(sep) => s[..sep]
+                .parse::<u64>()
+                .map_err(|err| format!("{} on {:?}", err, s))? as f64,
+            None => 0.0,
+        } * 60.0;
+        let s = match begin {
+            Some(sep) => &s[(sep + 1)..],
+            None => s,
+        };
+
+        let f: f64 = s.parse().map_err(|err| format!("{} on {:?}", err, s))?;
+        let d = Duration::from_secs_f64(min + f);
+
+        Ok(match sign {
+            '+' => Delta::Add(d),
+            '-' => Delta::Sub(d),
+            _ => {
+                return Err(format!(
+                    "Need a sign at begin to a Delta time ({:?}) or zero or an empty string",
+                    s
+                ))
+            }
+        })
+    }
+}
+#[test]
+fn delta_fromstr() {
+    let add = Delta::Add(Duration::new(96, 125_000_000));
+    assert_eq!("+96.125".parse::<Delta>().unwrap(), add);
+    assert_eq!("+1:36.125".parse::<Delta>().unwrap(), add);
+
+    let sub = Delta::Sub(Duration::new(96, 125_000_000));
+    assert_eq!("-96.125".parse::<Delta>().unwrap(), sub);
+    assert_eq!("-1:36.125".parse::<Delta>().unwrap(), sub);
+
+    assert_eq!("".parse::<Delta>().unwrap(), Delta::None);
+    assert_eq!("0".parse::<Delta>().unwrap(), Delta::None);
+}
 
 /// The crate supported formats for input or output stream.
 #[derive(Debug, Copy, Clone)]
 pub enum Format {
     WebVTT,
     Srt,
+}
+impl FromStr for Format {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "srt" {
+            Ok(Format::Srt)
+        } else if s == "webvtt" {
+            Ok(Format::WebVTT)
+        } else {
+            Err(format!(
+                "Unknown format for {:?} (possible value are: 'webvtt' and 'srt')",
+                s
+            ))
+        }
+    }
 }
 
 /// Convert cues from the input, apply delta duration and save it.
