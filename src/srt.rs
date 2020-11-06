@@ -4,7 +4,7 @@
 
 use super::{Cue, LineNb};
 use std::fmt::Display;
-use std::io::{self, BufReader, ErrorKind, Read};
+use std::io::{self, BufReader, ErrorKind, Read, Write};
 use std::time::Duration;
 
 pub struct SrtParser<R: Read> {
@@ -108,12 +108,11 @@ fn srtparser() {
     let mut input: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
     input
         .write(
-            "1
+            b"1
 00:00:05,542 --> 00:00:07,792
 Hello
 World
-"
-            .as_bytes(),
+",
         )
         .unwrap();
 
@@ -193,4 +192,89 @@ fn err_invalid<T>(because: &'static str, data: &str, line: usize) -> io::Result<
         ErrorKind::InvalidData,
         format!("{} in {:?} (line {})", because, data, line),
     ))
+}
+
+/// Write all Cues from the input Iterator into the write W. Use SRT subtitle format.
+/// Return the number fo writed cue.
+pub fn out<I, W>(cues: I, mut w: W) -> Result<usize, std::io::Error>
+where
+    W: Write,
+    I: std::iter::Iterator<Item = Cue>,
+{
+    let mut nb = 0;
+
+    for c in cues {
+        nb += 1;
+        writeln!(w, "{}", nb)?;
+        write_duration(&mut w, &c.begin);
+        write!(w, " --> ")?;
+        write_duration(&mut w, &c.end);
+        writeln!(w, "")?;
+        for l in c.text {
+            writeln!(w, "{}", l)?;
+        }
+        writeln!(w, "")?;
+    }
+
+    Ok(nb)
+}
+#[test]
+fn test_out() {
+    fn dur(d: u64) -> Duration {
+        Duration::new(d, 0)
+    }
+
+    let cues = vec![
+        Cue::new(
+            None,
+            dur(1),
+            dur(4),
+            vec!["Never drink liquid nitrogen.".to_string()],
+        ),
+        Cue::new(
+            None,
+            dur(5),
+            dur(9),
+            vec![
+                "— It will perforate your stomach.".to_string(),
+                "— You could die.".to_string(),
+            ],
+        ),
+    ];
+
+    let mut output: Vec<u8> = Vec::new();
+    assert_eq!(2, out(cues.into_iter(), &mut output).unwrap());
+    assert_eq!(
+        std::str::from_utf8(&output).unwrap(),
+        "1
+00:00:01,000 --> 00:00:04,000
+Never drink liquid nitrogen.
+
+2
+00:00:05,000 --> 00:00:09,000
+— It will perforate your stomach.
+— You could die.
+
+"
+    );
+}
+
+/// Write one time code to a line.
+fn write_duration<W: Write>(w: &mut W, d: &Duration) -> Result<(), io::Error> {
+    let sec = d.as_secs();
+    write!(
+        w,
+        "{:02}:{:02}:{:02},{:03}",
+        sec / 3600,
+        sec / 60 % 60,
+        sec % 60,
+        d.subsec_millis()
+    )
+}
+#[test]
+fn test_write_duration() {
+    let d = Duration::new(2 * 3600 + 3 * 60 + 5, 84 * 1_000_000);
+    let mut out: Vec<u8> = Vec::new();
+    write_duration(&mut out, &d).unwrap();
+    assert_eq!(std::str::from_utf8(&out).unwrap(), "02:03:05,084");
 }
