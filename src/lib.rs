@@ -52,7 +52,7 @@ pub enum Delta {
 }
 impl Delta {
     /// Apply the delta time to the cue.
-    fn apply(&self, c: &mut Cue) {
+    pub fn apply(&self, c: &mut Cue) {
         match self {
             Delta::Add(d) => {
                 c.begin += *d;
@@ -65,9 +65,32 @@ impl Delta {
             Delta::None => {}
         }
     }
+    /// A closure to apply the delta time on a Cue. Use it with Iterator.map()
+    pub fn applicator(&self) -> impl Fn(Cue) -> Cue {
+        fn add(c: &mut Cue, d: &Duration) {
+            c.begin += *d;
+            c.end += *d;
+        }
+        fn sub(c: &mut Cue, d: &Duration) {
+            c.begin -= *d;
+            c.end -= *d;
+        }
+        fn zero(_: &mut Cue, _: &Duration) {}
+
+        let (f, d): (fn(&mut Cue, &Duration), Duration) = match self {
+            Delta::Add(d) => (add, *d),
+            Delta::Sub(d) => (sub, *d),
+            Delta::None => (zero, Duration::new(0, 0)),
+        };
+
+        move |mut c: Cue| {
+            f(&mut c, &d);
+            c
+        }
+    }
 }
 #[test]
-fn delat_apply() {
+fn delta_apply() {
     let c = Cue::new(None, Duration::new(5, 10), Duration::new(6, 20), Vec::new());
 
     let mut cc = c.clone();
@@ -88,6 +111,30 @@ fn delat_apply() {
 
     let mut cc = c.clone();
     Delta::Sub(Duration::new(2, 0)).apply(&mut cc);
+    assert_eq!(
+        cc,
+        Cue::new(None, Duration::new(3, 10), Duration::new(4, 20), Vec::new())
+    );
+}
+#[test]
+fn delta_applicator() {
+    let c = Cue::new(None, Duration::new(5, 10), Duration::new(6, 20), Vec::new());
+
+    let cc = Delta::None.applicator()(c.clone());
+    assert_eq!(cc, c);
+
+    let cc = Delta::Add(Duration::new(10, 0)).applicator()(c.clone());
+    assert_eq!(
+        cc,
+        Cue::new(
+            None,
+            Duration::new(15, 10),
+            Duration::new(16, 20),
+            Vec::new()
+        )
+    );
+
+    let cc = Delta::Sub(Duration::new(2, 0)).applicator()(c.clone());
     assert_eq!(
         cc,
         Cue::new(None, Duration::new(3, 10), Duration::new(4, 20), Vec::new())
@@ -187,10 +234,7 @@ pub fn convert_output<I: Iterator<Item = io::Result<Cue>>, W: Write>(
                 }
             }
         })
-        .map(|mut c| {
-            delta.apply(&mut c);
-            c
-        });
+        .map(delta.applicator());
 
     let nb = match output_format {
         Format::WebVTT => webvtt_out,
