@@ -7,6 +7,8 @@ use std::io::{BufRead, BufReader, Lines, Read, Write};
 use std::time::Duration;
 
 mod srt;
+pub use srt::out as srt_out;
+pub use srt::SrtParser;
 
 mod webvtt;
 pub use webvtt::out as webvtt_out;
@@ -96,7 +98,7 @@ fn delat_apply() {
 #[derive(Debug, Copy, Clone)]
 pub enum Format {
     WebVTT,
-    B,
+    Srt,
 }
 
 /// Convert cues from the input, apply delta duration and save it.
@@ -109,13 +111,13 @@ pub fn convert<R: Read, W: Write>(
 ) -> io::Result<usize> {
     match input_format {
         Format::WebVTT => convert_output(
-            WebVTTParser::parse(input_reader)?,
+            WebVTTParser::new(input_reader)?,
             output_writer,
             output_format,
             delta,
         ),
-        Format::B => convert_output(
-            Bparser { _r: input_reader },
+        Format::Srt => convert_output(
+            SrtParser::new(input_reader)?,
             output_writer,
             output_format,
             delta,
@@ -192,35 +194,13 @@ pub fn convert_output<I: Iterator<Item = io::Result<Cue>>, W: Write>(
 
     let nb = match output_format {
         Format::WebVTT => webvtt_out,
-        Format::B => b_out,
+        Format::Srt => srt_out,
     }(cues, output_writer)?;
 
     match error {
         Some(e) => Err(e),
         None => Ok(nb),
     }
-}
-
-/* ONLY FOR TEST THE `convert` function */
-
-/// Just for dev
-struct Bparser<R: Read> {
-    _r: R,
-}
-impl<R: Read> Iterator for Bparser<R> {
-    type Item = io::Result<Cue>;
-    fn next(&mut self) -> Option<io::Result<Cue>> {
-        unimplemented!()
-    }
-}
-
-/// Just for dev
-pub fn b_out<I, W>(_: I, _: W) -> Result<usize, std::io::Error>
-where
-    W: Write,
-    I: std::iter::Iterator<Item = Cue>,
-{
-    unimplemented!()
 }
 
 /// A line by line reader that count readed lines.

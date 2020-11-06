@@ -206,9 +206,9 @@ where
     for c in cues {
         nb += 1;
         writeln!(w, "{}", nb)?;
-        write_duration(&mut w, &c.begin);
+        write_duration(&mut w, &c.begin)?;
         write!(w, " --> ")?;
-        write_duration(&mut w, &c.end);
+        write_duration(&mut w, &c.end)?;
         writeln!(w, "")?;
         for l in c.text {
             writeln!(w, "{}", l)?;

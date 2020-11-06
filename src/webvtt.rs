@@ -13,7 +13,7 @@ pub struct WebVTTParser<R: Read> {
     end: bool,
 }
 impl<R: Read> WebVTTParser<R> {
-    pub fn parse(r: R) -> io::Result<Self> {
+    pub fn new(r: R) -> io::Result<Self> {
         let mut lines = LineNb::new(r);
 
         match lines.next() {
@@ -145,7 +145,7 @@ impl<R: Read> Iterator for WebVTTParser<R> {
 }
 #[test]
 fn parser() {
-    let mut p = WebVTTParser::parse(
+    let mut p = WebVTTParser::new(
         "WEBVTT - A good webvtt file
 
 REGION
