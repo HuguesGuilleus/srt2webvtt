@@ -4,6 +4,7 @@
 
 use std::io;
 use std::io::{BufRead, BufReader, Lines, Read, Write};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -198,18 +199,26 @@ pub enum Format {
     WebVTT,
     Srt,
 }
+impl std::convert::TryFrom<&PathBuf> for Format {
+    type Error = ();
+    fn try_from(p: &PathBuf) -> Result<Self, Self::Error> {
+        match p.extension() {
+            Some(ext) if ext == "vtt" => Ok(Format::WebVTT),
+            Some(ext) if ext == "srt" => Ok(Format::Srt),
+            _ => Err(()),
+        }
+    }
+}
 impl FromStr for Format {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == "srt" {
-            Ok(Format::Srt)
-        } else if s == "webvtt" {
-            Ok(Format::WebVTT)
-        } else {
-            Err(format!(
-                "Unknown format for {:?} (possible value are: 'webvtt' and 'srt')",
+        match s {
+            "srt" => Ok(Format::Srt),
+            "vtt" | "webvtt" => Ok(Format::WebVTT),
+            _ => Err(format!(
+                "Unknown format for {:?} (possible value are: 'vtt' and 'srt')",
                 s
-            ))
+            )),
         }
     }
 }
