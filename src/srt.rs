@@ -2,10 +2,124 @@
 // Use of this source code is governed by a BSD
 // license that can be found in the LICENSE file.
 
+use super::{Cue, LineNb};
 use std::fmt::Display;
-use std::io;
-use std::io::ErrorKind;
+use std::io::{self, BufReader, ErrorKind, Read};
 use std::time::Duration;
+
+pub struct SrtParser<R: Read> {
+    lines: LineNb<BufReader<R>>,
+    end: bool,
+}
+impl<R: Read> SrtParser<R> {
+    pub fn new(r: R) -> io::Result<Self> {
+        use std::io::BufRead;
+
+        let mut input = BufReader::new(r);
+
+        let first = input.fill_buf()?;
+        if first.len() >= 3 && &first[..3] == [0xEF, 0xBB, 0xBF] {
+            input.consume(3);
+        }
+
+        Ok(Self {
+            lines: LineNb::new(input),
+            end: false,
+        })
+    }
+    /// Just after the id line is readed, parse the cue (time code and text content).
+    fn next_cue(&mut self) -> io::Result<Cue> {
+        match self.lines.next() {
+            None => Err(io::Error::new(
+                ErrorKind::UnexpectedEof,
+                format!(
+                    "Expected time code to a new cue (line: {})",
+                    self.lines.current()
+                ),
+            )),
+            Some(Err(e)) => Err(e),
+            Some(Ok(time_code)) => {
+                let (begin, end) = parse_time(&time_code, self.lines.current())?;
+                Ok(Cue::new(None, begin, end, self.next_text()?))
+            }
+        }
+    }
+    /// Return the text of a cue.
+    fn next_text(&mut self) -> io::Result<Vec<String>> {
+        let mut text = Vec::new();
+        loop {
+            match self.lines.next() {
+                Some(Err(e)) => return Err(e),
+                None => return Ok(text),
+                Some(Ok(l)) if l.len() == 0 => return Ok(text),
+                Some(Ok(l)) => text.push(l),
+            }
+        }
+    }
+}
+impl<R: Read> Iterator for SrtParser<R> {
+    type Item = io::Result<Cue>;
+    fn next(&mut self) -> Option<io::Result<Cue>> {
+        if self.end {
+            return None;
+        }
+
+        match self.lines.next() {
+            None => {
+                self.end = true;
+                None
+            }
+            Some(Err(e)) => {
+                self.end = true;
+                Some(Err(e))
+            }
+            Some(Ok(l)) if l.len() == 0 => self.next(),
+            Some(Ok(id)) if id.chars().any(|c| !c.is_numeric()) => {
+                self.end = true;
+                Some(err_invalid("Unexpected line", &id, self.lines.current()))
+            }
+            Some(Ok(..)) => match self.next_cue() {
+                Err(e) => {
+                    self.end = true;
+                    Some(Err(e))
+                }
+                Ok(c) => Some(Ok(c)),
+            },
+        }
+    }
+}
+#[test]
+fn srtparser() {
+    use std::io::prelude::*;
+
+    fn t(s: &[u8]) {
+        let mut p = SrtParser::new(s).unwrap();
+        assert_eq!(
+            Cue::new(
+                None,
+                Duration::new(5, 542_000_000),
+                Duration::new(7, 792_000_000),
+                vec!["Hello".to_string(), "World".to_string()]
+            ),
+            p.next().unwrap().unwrap()
+        );
+    }
+
+    let mut input: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
+    input
+        .write(
+            "1
+00:00:05,542 --> 00:00:07,792
+Hello
+World
+"
+            .as_bytes(),
+        )
+        .unwrap();
+
+    t(&input[3..]);
+    t(&input[..]);
+}
 
 fn parse_time(s: &str, line: usize) -> io::Result<(Duration, Duration)> {
     let split: Vec<&str> = s.split(" --> ").take(3).collect();
@@ -24,7 +138,7 @@ fn parse_time_test() {
         Duration::new(h * 3600 + m * 60 + s, ms * 1_000_000)
     }
     assert_eq!(
-        parse_time("x --> 17:35:29.942 --> 17:25:48.456", 0).unwrap(),
+        parse_time("17:35:29,942 --> 17:25:48,456", 0).unwrap(),
         (dur(17, 35, 29, 942), dur(17, 25, 48, 456))
     );
 }
